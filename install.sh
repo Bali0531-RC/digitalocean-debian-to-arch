@@ -227,7 +227,12 @@ validate_flags_and_augment_globals() {
 		ext4)
 			;;
 		btrfs)
-			host_packages+=(btrfs-tools)
+			# In Debian 11+ the package is named btrfs-progs
+			if [[ "$(cat /etc/debian_version)" =~ ^([89]|10).+$ ]]; then
+				host_packages+=(btrfs-tools)
+			else
+				host_packages+=(btrfs-progs)
+			fi
 			arch_packages+=(btrfs-progs)
 			;;
 		*)
@@ -258,8 +263,8 @@ sanity_checks() {
 	[ ${EUID} -eq 0 ] || fatal "Script must be run as root."
 	[ ${UID} -eq 0 ] || fatal "Script must be run as root."
 	[ -e /dev/vda ] || fatal "Script must be run on a KVM machine."
-	[[ "$(cat /etc/debian_version)" =~ ^([89]|10).+$ ]] || \
-		fatal "This script only supports Debian 8.x/9.x."
+	[[ "$(cat /etc/debian_version)" =~ ^([89]|1[0-2]).+$ ]] || \
+		fatal "This script only supports Debian 8.x/9.x/10.x/11.x/12.x."
 }
 
 prompt_for_destruction() {
@@ -278,23 +283,31 @@ prompt_for_destruction() {
 }
 
 download_and_verify() {
-	local file_url="$1"
-	local local_path="$2"
-	local expected_sha256="$3"
-	for try in {0..3}; do
-		if [ ${try} -eq 0 ]; then
-			[ -e "${local_path}" ] || continue
-		else
-			wget -O "${local_path}" "${file_url}"
-		fi
-		set -- $(sha256sum "${local_path}")
-		if [ $1 = "${expected_sha256}" ]; then
-			return 0
-		else
-			rm -f "${local_path}"
-		fi
-	done
-	return 1
+    local file_url="$1"
+    local local_path="$2"
+    local expected_sha256="$3"
+    for try in {0..3}; do
+        if [ ${try} -eq 0 ]; then
+            [ -e "${local_path}" ] || continue
+        else
+            wget -O "${local_path}" "${file_url}" || continue
+        fi
+        
+        local checksum_output=$(sha256sum "${local_path}")
+        if [ -z "$checksum_output" ]; then
+            log "Failed to compute SHA256 checksum for ${local_path}"
+            continue
+        fi
+        
+        set -- $checksum_output
+        if [ -n "$1" ] && [ "$1" = "${expected_sha256}" ]; then
+            return 0
+        else
+            log "Checksum mismatch or empty result. Expected: ${expected_sha256}"
+            rm -f "${local_path}"
+        fi
+    done
+    return 1
 }
 
 build_parted_cmdline() {
@@ -406,19 +419,65 @@ stage1_install() {
 	chmod 0444 /d2a/work/doroot/README
 
 	log "Downloading bootstrap tarball ..."
-	set -- $(wget -qO- ${archlinux_mirror}/iso/latest/sha256sums.txt |
-		grep "archlinux-bootstrap-[^-]*-${target_architecture}.tar.gz")
+	# First, try to download the SHA256SUMS file
+	sha256sums_file="/d2a/sha256sums.txt"
+	if ! wget -q -O ${sha256sums_file} ${archlinux_mirror}/iso/latest/sha256sums.txt; then
+	    fatal "Failed to download SHA256SUMS file from ${archlinux_mirror}/iso/latest/sha256sums.txt"
+	fi
+
+	# Show the content for debugging
+	log "Available bootstrap files:"
+	grep -i "bootstrap" ${sha256sums_file} || log "No bootstrap files found in SHA256SUMS"
+
+	# Try to find the bootstrap tarball for our architecture
+	bootstrap_info=$(grep "archlinux-bootstrap-.*-${target_architecture}\.tar\." ${sha256sums_file})
+
+	if [ -z "$bootstrap_info" ]; then
+	    # Try a more flexible pattern as fallback
+	    bootstrap_info=$(grep -i "bootstrap" ${sha256sums_file} | grep "${target_architecture}")
+	    
+	    if [ -z "$bootstrap_info" ]; then
+	        fatal "Failed to find bootstrap tarball for architecture '${target_architecture}'. Check mirror URL."
+	    else
+	        log "Found bootstrap using fallback pattern: $bootstrap_info"
+	    fi
+	fi
+
+	# Parse the bootstrap info
+	set -- $bootstrap_info
 	local expected_sha256=$1
 	local bootstrap_filename=$2
+
+	if [ -z "$expected_sha256" ] || [ -z "$bootstrap_filename" ]; then
+	    fatal "Failed to parse bootstrap tarball info. Format may have changed. Info: '$bootstrap_info'"
+	fi
+
+	# Check if zstd is needed and install if missing
+	if [[ "$bootstrap_filename" == *".tar.zst" ]]; then
+	    if ! command -v zstd &>/dev/null; then
+	        log "Installing zstd for bootstrap extraction..."
+	        DEBIAN_FRONTEND=noninteractive apt-get install -y zstd
+	    fi
+	fi
+
+	log "Downloading ${bootstrap_filename} with expected SHA256: ${expected_sha256}"
 	download_and_verify \
-		${archlinux_mirror}/iso/latest/${bootstrap_filename} \
-		/d2a/bootstrap.tar.gz \
-		${expected_sha256}
+	    "${archlinux_mirror}/iso/latest/${bootstrap_filename}" \
+	    "/d2a/bootstrap.tar.zst" \
+	    "${expected_sha256}" || fatal "Failed to download or verify ${bootstrap_filename}"
 
 	log "Extracting bootstrap tarball ..."
-	tar -xzf /d2a/bootstrap.tar.gz \
-		--directory=/d2a/work/archroot \
-		--strip-components=1
+	if [[ "$bootstrap_filename" == *".tar.zst" ]]; then
+	    # Extract zstd compressed tarball
+	    zstd -dc /d2a/bootstrap.tar.zst | tar -x \
+	        --directory=/d2a/work/archroot \
+	        --strip-components=1
+	else
+	    # Extract gzip compressed tarball (fallback for older versions)
+	    tar -xzf /d2a/bootstrap.tar.zst \
+	        --directory=/d2a/work/archroot \
+	        --strip-components=1
+	fi
 
 	log "Mounting virtual filesystems ..."
 	mount -t proc proc /d2a/work/archroot/proc
@@ -465,7 +524,7 @@ stage1_install() {
 		log "SSH public keys are not configured for this droplet."
 		log "PermitRootLogin will be enabled in sshd_config to permit root logins over SSH."
 		log "This is a security risk, as passwords are not as secure as public keys."
-		log "To set up public keys, visit the following URL: https://goo.gl/iEgFRs"
+		log "To set up public keys, visit the following URL: https://goo.gl/iEgFRs"y
 		log "Remember to remove the PermitRootLogin option from sshd_config after doing so."
 		cat >> /d2a/work/archroot/etc/ssh/sshd_config <<-EOF
 
