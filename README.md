@@ -14,7 +14,7 @@ important data.
 
 Installation
 ------------
-1. Create a new Debian 9.x droplet (either 32-bit or 64-bit is fine).
+1. Create a new Debian droplet (9.x through 13.x, either 32-bit or 64-bit is fine).
 2. In the droplet, run the following as root:
 
         # wget https://raw.githubusercontent.com/gh2o/digitalocean-debian-to-arch/debian9/install.sh -O install.sh
