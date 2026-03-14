@@ -452,8 +452,10 @@ stage1_install() {
 	    fatal "Failed to parse bootstrap tarball info. Format may have changed. Info: '$bootstrap_info'"
 	fi
 
-	# Check if zstd is needed and install if missing
+	local bootstrap_local="/d2a/${bootstrap_filename}"
+	local is_zstd=false
 	if [[ "$bootstrap_filename" == *".tar.zst" ]]; then
+	    is_zstd=true
 	    if ! command -v zstd &>/dev/null; then
 	        log "Installing zstd for bootstrap extraction..."
 	        DEBIAN_FRONTEND=noninteractive apt-get install -y zstd
@@ -463,18 +465,18 @@ stage1_install() {
 	log "Downloading ${bootstrap_filename} with expected SHA256: ${expected_sha256}"
 	download_and_verify \
 	    "${archlinux_mirror}/iso/latest/${bootstrap_filename}" \
-	    "/d2a/bootstrap.tar.zst" \
+	    "${bootstrap_local}" \
 	    "${expected_sha256}" || fatal "Failed to download or verify ${bootstrap_filename}"
 
 	log "Extracting bootstrap tarball ..."
-	if [[ "$bootstrap_filename" == *".tar.zst" ]]; then
+	if [ "${is_zstd}" = true ]; then
 	    # Extract zstd compressed tarball
-	    zstd -dc /d2a/bootstrap.tar.zst | tar -x \
+	    zstd -dc "${bootstrap_local}" | tar -x \
 	        --directory=/d2a/work/archroot \
 	        --strip-components=1
 	else
 	    # Extract gzip compressed tarball (fallback for older versions)
-	    tar -xzf /d2a/bootstrap.tar.zst \
+	    tar -xzf "${bootstrap_local}" \
 	        --directory=/d2a/work/archroot \
 	        --strip-components=1
 	fi
