@@ -226,7 +226,12 @@ validate_flags_and_augment_globals() {
 		ext4)
 			;;
 		btrfs)
-			host_packages+=(btrfs-tools)
+			# In Debian 11+ the package is named btrfs-progs
+			if [[ "$(cat /etc/debian_version)" =~ ^([89]|10).+$ ]]; then
+				host_packages+=(btrfs-tools)
+			else
+				host_packages+=(btrfs-progs)
+			fi
 			arch_packages+=(btrfs-progs)
 			;;
 		*)
@@ -257,8 +262,8 @@ sanity_checks() {
 	[ ${EUID} -eq 0 ] || fatal "Script must be run as root."
 	[ ${UID} -eq 0 ] || fatal "Script must be run as root."
 	[ -e /dev/vda ] || fatal "Script must be run on a KVM machine."
-	[[ "$(cat /etc/debian_version)" =~ ^[89].+$ ]] || \
-		fatal "This script only supports Debian 8.x/9.x."
+	[[ "$(cat /etc/debian_version)" =~ ^([89]|1[0-3]).+$ ]] || \
+		fatal "This script only supports Debian 8.x/9.x/10.x/11.x/12.x/13.x."
 }
 
 prompt_for_destruction() {
