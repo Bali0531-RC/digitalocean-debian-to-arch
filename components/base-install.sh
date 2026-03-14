@@ -436,6 +436,7 @@ stage1_install() {
 	log "Preparing bootstrap filesystem ..."
 	echo "Server = ${archlinux_mirror}/\$repo/os/\$arch" > /d2a/work/archroot/etc/pacman.d/mirrorlist
 	echo 'nameserver 8.8.8.8' > /d2a/work/archroot/etc/resolv.conf
+	touch /d2a/work/archroot/etc/vconsole.conf
 
 	log "Installing base system ..."
 	chroot /d2a/work/archroot pacman-key --init
@@ -454,6 +455,12 @@ stage1_install() {
 	chroot /d2a/work/archroot systemctl enable sshd.service
 
 	log "Forcing fallback kernel ..." # cannot trust autodetect when running on Debian kernel
+	sed -i 's/^PRESETS=/#&/' /d2a/work/archroot/etc/mkinitcpio.d/${kernel_package}.preset
+	sed -i 's/^#\(PRESETS=.*fallback\)/\1/' /d2a/work/archroot/etc/mkinitcpio.d/${kernel_package}.preset
+	sed -i 's/^#\(fallback_image=\)/\1/' /d2a/work/archroot/etc/mkinitcpio.d/${kernel_package}.preset
+	sed -i 's/^#\(fallback_options=\)/\1/' /d2a/work/archroot/etc/mkinitcpio.d/${kernel_package}.preset
+	sed -i 's/sd-vconsole //' /d2a/work/archroot/etc/mkinitcpio.conf
+	chroot /d2a/work/archroot mkinitcpio -P
 	cp /d2a/work/archroot/boot/initramfs-${kernel_package}{-fallback,}.img
 
 	log "Installing digitalocean-synchronize ..."
@@ -771,6 +778,7 @@ stage3_prepare() {
 	log "Check the console for errors if the machine is still unaccessible after a few minutes."
 	sleep 1
 	trap - EXIT
+	touch /etc/initrd-release
 	systemctl switch-root /d2a/mid /init
 }
 
