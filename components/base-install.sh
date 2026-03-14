@@ -819,6 +819,10 @@ stage3_prepare() {
 	# create directories (will be filled by systemd)
 	mkdir /d2a/mid/{proc,sys,dev}
 
+	# create os-release so systemd accepts this as an OS tree for switch-root
+	mkdir -p /d2a/mid/etc
+	touch /d2a/mid/etc/os-release
+
 	# copy in the blockplan
 	cp /d2a/blockplan /d2a/mid/blockplan
 
