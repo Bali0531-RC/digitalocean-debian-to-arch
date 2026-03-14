@@ -779,6 +779,7 @@ stage3_prepare() {
 	sleep 1
 	trap - EXIT
 	touch /etc/initrd-release
+	systemctl daemon-reexec
 	systemctl switch-root /d2a/mid /init
 }
 
