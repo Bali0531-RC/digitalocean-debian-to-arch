@@ -524,7 +524,7 @@ stage1_install() {
 		log "SSH public keys are not configured for this droplet."
 		log "PermitRootLogin will be enabled in sshd_config to permit root logins over SSH."
 		log "This is a security risk, as passwords are not as secure as public keys."
-		log "To set up public keys, visit the following URL: https://goo.gl/iEgFRs"y
+		log "To set up public keys, visit the following URL: https://goo.gl/iEgFRs"
 		log "Remember to remove the PermitRootLogin option from sshd_config after doing so."
 		cat >> /d2a/work/archroot/etc/ssh/sshd_config <<-EOF
 
